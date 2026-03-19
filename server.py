@@ -10,14 +10,16 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 # ─────────────────────────────────────────────
-# CONFIG
+# НАЛАШТУВАННЯ ШЛЯХІВ
 # ─────────────────────────────────────────────
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "hotel.db")
+STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 app = FastAPI(title="Forrest Hotel API")
 
+# Дозволяємо запити з будь-яких джерел (CORS)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -25,58 +27,95 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Створюємо папку static, якщо її немає
-if not os.path.exists(os.path.join(BASE_DIR, "static")):
-    os.makedirs(os.path.join(BASE_DIR, "static"))
+# Створюємо папку static, якщо її забули створити в репозиторії
+if not os.path.exists(STATIC_DIR):
+    os.makedirs(STATIC_DIR)
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Монтуємо папку static для CSS, JS та зображень
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # ─────────────────────────────────────────────
-# DB INIT (Створення таблиць при запуску)
+# ІНІЦІАЛІЗАЦІЯ БАЗИ ДАНИХ
 # ─────────────────────────────────────────────
 
 def init_db():
+    """Створює таблиці, якщо вони ще не існують"""
     with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("""
+        cursor = conn.cursor()
+        # Таблиця бронювань
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS bookings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                room_type TEXT,
-                check_in TEXT,
-                check_out TEXT,
-                user_id INTEGER,
-                guests INTEGER,
-                name TEXT,
-                phone TEXT,
-                status TEXT DEFAULT 'pending'
+                room_type TEXT NOT NULL,
+                check_in TEXT NOT NULL,
+                check_out TEXT NOT NULL,
+                guests INTEGER DEFAULT 2,
+                name TEXT NOT NULL,
+                phone TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        conn.execute("""
+        # Таблиця заблокованих дат (адмін-панель)
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS blocked_dates (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                room_type TEXT,
-                block_start TEXT,
-                block_end TEXT,
+                room_type TEXT NOT NULL,
+                block_start TEXT NOT NULL,
+                block_end TEXT NOT NULL,
                 reason TEXT
             )
         """)
         conn.commit()
 
-init_db()  # Викликаємо ініціалізацію відразу
+init_db()
 
 # ─────────────────────────────────────────────
-# ROUTES
+# МОДЕЛІ ДАНИХ (Pydantic)
+# ─────────────────────────────────────────────
+
+class BookingRequest(BaseModel):
+    room_type: str
+    check_in: str
+    check_out: str
+    name: str
+    phone: str
+    guests: int = 2
+    wish: Optional[str] = None
+
+# ─────────────────────────────────────────────
+# МАРШРУТИ ДЛЯ СТОРІНОК (HTML)
 # ─────────────────────────────────────────────
 
 @app.get("/")
-def root():
-    index_path = os.path.join(BASE_DIR, "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    return {"message": "Server is running, but index.html not found in root"}
+async def get_index():
+    """Головна сторінка (index.html у корені)"""
+    path = os.path.join(BASE_DIR, "index.html")
+    if os.path.exists(path):
+        return FileResponse(path)
+    return {"error": "index.html не знайдено в корені проєкту"}
+
+@app.get("/hotel")
+async def get_hotel():
+    """Сторінка готелю (forrest-hotel.html у корені)"""
+    path = os.path.join(BASE_DIR, "forrest-hotel.html")
+    if os.path.exists(path):
+        return FileResponse(path)
+    return {"error": "forrest-hotel.html не знайдено"}
+
+# ─────────────────────────────────────────────
+# API ЕНДПОІНТИ
+# ─────────────────────────────────────────────
 
 @app.get("/health")
-def health():
-    return {"status": "ok", "db_path": DB_PATH}
+def health_check():
+    return {
+        "status": "online", 
+        "database": "connected", 
+        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
 
-# Решта твоїх API методів (booking, availability і т.д.) залишаються без змін
-# ... (твій попередній код API)
+@app.post("/api/booking")
+async def create_booking(req: BookingRequest):
+    try:
+        with
