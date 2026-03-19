@@ -5,7 +5,6 @@ Forrest Hotel — API сервер
 """
 
 import os
-import sys
 import sqlite3
 from datetime import date, datetime
 from typing import Optional
@@ -13,15 +12,15 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
-# Шлях до hotel.db — лежить в папці bot (поруч з папкою сайт)
-_here = os.path.dirname(os.path.abspath(__file__))
-_project_root = os.path.dirname(_here)  # виходимо з папки сайт
-DB_PATH = os.getenv("DB_PATH", os.path.join(_project_root, "bot", "hotel.db"))
+# База даних — поруч з server.py (і локально і на Render)
+DB_PATH = os.getenv("DB_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "hotel.db"))
 
 app = FastAPI(title="Forrest Hotel API")
 
-# ── CORS — дозволяємо запити з будь-якого джерела (локальний файл теж) ──
+# ── CORS — дозволяємо запити з будь-якого джерела ──
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -186,6 +185,15 @@ def get_all_bookings():
 @app.get("/health")
 def health():
     return {"status": "ok", "db": DB_PATH}
+
+
+@app.get("/")
+def serve_site():
+    """Відкриває сайт forrest-hotel.html"""
+    html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "forrest-hotel.html")
+    if os.path.exists(html_path):
+        return FileResponse(html_path, media_type="text/html")
+    return {"error": "forrest-hotel.html not found"}
 
 
 # ─────────────────────────────────────────────
