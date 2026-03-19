@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 # ─────────────────────────────────────────────
-# НАЛАШТУВАННЯ ШЛЯХІВ
+# КОНФІГУРАЦІЯ
 # ─────────────────────────────────────────────
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -19,7 +19,6 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 app = FastAPI(title="Forrest Hotel API")
 
-# Дозволяємо запити з будь-яких джерел (CORS)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -27,43 +26,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Створюємо папку static, якщо її забули створити в репозиторії
 if not os.path.exists(STATIC_DIR):
     os.makedirs(STATIC_DIR)
 
-# Монтуємо папку static для CSS, JS та зображень
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # ─────────────────────────────────────────────
-# ІНІЦІАЛІЗАЦІЯ БАЗИ ДАНИХ
+# БАЗА ДАНИХ
 # ─────────────────────────────────────────────
 
 def init_db():
-    """Створює таблиці, якщо вони ще не існують"""
     with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        # Таблиця бронювань
-        cursor.execute("""
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS bookings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                room_type TEXT NOT NULL,
-                check_in TEXT NOT NULL,
-                check_out TEXT NOT NULL,
-                guests INTEGER DEFAULT 2,
-                name TEXT NOT NULL,
-                phone TEXT NOT NULL,
-                status TEXT DEFAULT 'pending',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                room_type TEXT,
+                check_in TEXT,
+                check_out TEXT,
+                guests INTEGER,
+                name TEXT,
+                phone TEXT,
+                status TEXT DEFAULT 'pending'
             )
         """)
-        # Таблиця заблокованих дат (адмін-панель)
-        cursor.execute("""
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS blocked_dates (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                room_type TEXT NOT NULL,
-                block_start TEXT NOT NULL,
-                block_end TEXT NOT NULL,
-                reason TEXT
+                room_type TEXT,
+                block_start TEXT,
+                block_end TEXT
             )
         """)
         conn.commit()
@@ -71,7 +62,7 @@ def init_db():
 init_db()
 
 # ─────────────────────────────────────────────
-# МОДЕЛІ ДАНИХ (Pydantic)
+# МОДЕЛІ
 # ─────────────────────────────────────────────
 
 class BookingRequest(BaseModel):
@@ -81,41 +72,47 @@ class BookingRequest(BaseModel):
     name: str
     phone: str
     guests: int = 2
-    wish: Optional[str] = None
 
 # ─────────────────────────────────────────────
-# МАРШРУТИ ДЛЯ СТОРІНОК (HTML)
+# РОУТИ (HTML)
 # ─────────────────────────────────────────────
 
 @app.get("/")
 async def get_index():
-    """Головна сторінка (index.html у корені)"""
     path = os.path.join(BASE_DIR, "index.html")
     if os.path.exists(path):
         return FileResponse(path)
-    return {"error": "index.html не знайдено в корені проєкту"}
+    return {"message": "Server online, index.html missing"}
 
 @app.get("/hotel")
 async def get_hotel():
-    """Сторінка готелю (forrest-hotel.html у корені)"""
     path = os.path.join(BASE_DIR, "forrest-hotel.html")
     if os.path.exists(path):
         return FileResponse(path)
-    return {"error": "forrest-hotel.html не знайдено"}
+    return {"error": "forrest-hotel.html missing"}
 
 # ─────────────────────────────────────────────
-# API ЕНДПОІНТИ
+# API
 # ─────────────────────────────────────────────
 
 @app.get("/health")
-def health_check():
-    return {
-        "status": "online", 
-        "database": "connected", 
-        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    }
+def health():
+    return {"status": "ok", "db": os.path.exists(DB_PATH)}
 
 @app.post("/api/booking")
 async def create_booking(req: BookingRequest):
     try:
-        with
+        with sqlite3.connect(DB_PATH) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO bookings (room_type, check_in, check_out, guests, name, phone) VALUES (?,?,?,?,?,?)",
+                (req.room_type, req.check_in, req.check_out, req.guests, req.name, req.phone)
+            )
+            conn.commit()
+            return {"success": True, "id": cur.lastrowid}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=10000)
